@@ -1,0 +1,7 @@
+services:
+  python-app:
+    build: .
+    volumes:
+      - ./app:/app
+      - ./data:/data
+    tty: true
