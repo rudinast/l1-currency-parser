@@ -1,45 +1,81 @@
+import os
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
+from http import HTTPStatus
 
-# Функция для сохранения данных в файл CSV
-def save_to_csv(data, filename="/data/dataset_v3.csv"):
-    if data:  # Проверяем, есть ли данные для записи
+# Константы
+DATA_DIR = "/data"
+FILENAME = "dataset_v3.csv"
+CSV_PATH = os.path.join(DATA_DIR, FILENAME)
+CSV_SEP = ';'
+CSV_ENCODING = 'utf-8-sig'
+DAYS_IN_YEAR = 365  # Количество дней для парсинга
+BASE_URL = "https://www.cbr-xml-daily.ru/archive/"
+CURRENCY_CODE = 'USD'  # Код валюты
+
+# Словарь основных кодов состояния HTTP
+HTTP_STATUS_MESSAGES = {
+    HTTPStatus.OK: "Успешно",
+    HTTPStatus.BAD_REQUEST: "Неверный запрос",
+    HTTPStatus.UNAUTHORIZED: "Не авторизован",
+    HTTPStatus.FORBIDDEN: "Запрещено",
+    HTTPStatus.NOT_FOUND: "Не найдено",
+    HTTPStatus.INTERNAL_SERVER_ERROR: "Внутренняя ошибка сервера",
+}
+
+
+def save_to_csv(data, filename=CSV_PATH):
+    """
+    Сохраняет данные в файл CSV.
+
+    :param data: словарь с данными для сохранения (дата: курс USD)
+    :param filename: путь к файлу, в который сохраняются данные
+    """
+    if data:
+        # Создаем директорию, если она не существует
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+
         # Преобразуем данные в DataFrame
         df = pd.DataFrame(list(data.items()), columns=["Дата", "Курс USD"])
-        # Сохраняем в CSV файл с точкой с запятой в качестве разделителя
-        df.to_csv(filename, sep=';', index=False, encoding='utf-8-sig')
+
+        # Сохраняем данные в CSV файл
+        df.to_csv(filename, sep=CSV_SEP, index=False, encoding=CSV_ENCODING)
     else:
         print("Нет данных для сохранения.")
 
+
 # Основной код программы
 if __name__ == "__main__":
-    # URL для получения исторических данных с курсами валют (за максимально возможный период)
-    base_url = "https://www.cbr-xml-daily.ru/archive/"
-
-    # Создаем словарь для хранения данных
+    # Словарь для хранения данных о валюте
     currency_data = {}
 
-    # Перебираем данные за последние несколько дней, например, 365 дней
-    for days_ago in range(365):
+    # Перебираем данные за последние несколько дней (например, 365 дней)
+    for days_ago in range(DAYS_IN_YEAR):
         date_str = (datetime.now() - timedelta(days=days_ago)).strftime('%Y/%m/%d')
-        url = f"{base_url}{date_str}/daily_json.js"
+        url = f"{BASE_URL}{date_str}/daily_json.js"
 
         try:
             response = requests.get(url)
-            if response.status_code == 200:
-                data = response.json()
-                if 'Valute' in data and 'USD' in data['Valute']:
-                    usd_rate = data['Valute']['USD']['Value']
-                    # Сохраняем дату и курс валюты в словарь
-                    currency_data[date_str] = usd_rate
-                else:
-                    print(f"Данные за {date_str} отсутствуют или некорректны.")
-            else:
-                print(f"Не удалось получить данные за {date_str}, статус код: {response.status_code}")
+            response.raise_for_status()  # Поднимает исключение при ошибках HTTP
+
+            data = response.json()
+            if 'Valute' not in data or CURRENCY_CODE not in data['Valute']:
+                print(f"Данные за {date_str} отсутствуют или некорректны.")
+                continue
+
+            usd_rate = data['Valute'][CURRENCY_CODE]['Value']
+            # Сохраняем дату и курс валюты в словарь
+            currency_data[date_str] = usd_rate
+
+        except requests.exceptions.HTTPError as http_err:
+            print(f"HTTP ошибка: {http_err} ({date_str})")
+        except requests.exceptions.RequestException as req_err:
+            print(f"Ошибка запроса: {req_err} ({date_str})")
         except Exception as e:
-            print(f"Ошибка при получении данных за {date_str}: {e}")
+            print(f"Ошибка: {e} ({date_str})")
 
     # Сохраняем данные в CSV файл
     save_to_csv(currency_data)
-    print("Данные успешно сохранены в dataset_v3.csv")
+    print(f"Данные успешно сохранены в {FILENAME}")
+
